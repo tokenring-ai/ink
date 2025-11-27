@@ -259,6 +259,16 @@ export default class Ink {
 			this.fullStaticOutput += staticOutput;
 		}
 
+		if (this.lastOutputHeight >= this.options.stdout.rows && ! this.log.wantsTallMode()) {
+			this.options.stdout.write(
+				ansiEscapes.clearTerminal + this.fullStaticOutput + output,
+			);
+			this.lastOutput = output;
+			this.lastOutputHeight = outputHeight;
+			this.log.sync(output);
+			return;
+		}
+
 		// To ensure static output is cleanly rendered before main output, clear main output first
 		if (hasStaticOutput) {
 			this.log.clear();

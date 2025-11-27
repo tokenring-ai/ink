@@ -8,6 +8,7 @@ export type LogUpdate = {
   sync: (str: string) => void;
   forceRedraw: () => void;
   setTallMode: (enabled: boolean) => void;
+  wantsTallMode: () => boolean;
   (str: string): void;
 };
 
@@ -66,6 +67,8 @@ const createStandard = (
     throw new Error("The standard renderer does not support tall mode, use the incremental renderer for tall mode support");
   };
 
+  render.wantsTallMode = () => false;
+
   return render;
 };
 
@@ -77,7 +80,7 @@ const createIncremental = (
   let previousOutput = '';
   let hasHiddenCursor = false;
   let isInTallMode = false;
-  let wantsTallMode: boolean | null = null; // null = automatic, true/false = manual override
+  let wantsTallMode = false;
 
   const getTerminalHeight = (): number => {
     return (stream as NodeJS.WriteStream).rows || 24;
@@ -141,41 +144,46 @@ const createIncremental = (
       let divergenceIndex = 0;
       const minCommittedLength = Math.min(prevVisibleCount - 1, visibleCount - 1);
 
-      while (divergenceIndex < minCommittedLength && nextLines[divergenceIndex] === previousLines[divergenceIndex]) {
+      while (
+        divergenceIndex < minCommittedLength &&
+        nextLines[divergenceIndex] === previousLines[divergenceIndex]
+        ) {
         divergenceIndex++;
       }
 
-      // Calculate how many lines we need to go back from current cursor position
-      // Cursor is at the end of the last visible line (index prevVisibleCount - 1)
-      // We want to go to divergenceIndex
-      const linesToGoBack = prevVisibleCount - 1 - divergenceIndex;
-
-      if (linesToGoBack > 0) {
-        // Move cursor up to the divergence point
-        stream.write(ansiEscapes.cursorUp(linesToGoBack));
+      // Move cursor from "current" position (end of last visible line) back to the
+      // first line we need to rewrite.
+      const linesFromBottomToDivergence = (prevVisibleCount - 1) - divergenceIndex;
+      if (linesFromBottomToDivergence > 0) {
+        stream.write(ansiEscapes.cursorUp(linesFromBottomToDivergence));
       }
-
-      // Move to beginning of line
       stream.write(ansiEscapes.cursorTo(0));
 
-      // Write all lines from divergence point to the second-to-last line (with newlines)
+      // Rewrite all lines from divergenceIndex through the last visible line.
       for (let i = divergenceIndex; i < visibleCount - 1; i++) {
         stream.write(ansiEscapes.eraseLine + nextLines[i]! + '\n');
       }
 
-      // Write the last active line without trailing newline
+      // Rewrite the last active line without a trailing newline
       if (visibleCount > 0) {
         stream.write(ansiEscapes.eraseLine + nextLines[visibleCount - 1]!);
       }
 
-      // If we had more lines before, we need to clear the remaining old lines
+      // If there used to be more visible lines than we now have, clear them
       if (prevVisibleCount > visibleCount) {
-        // Save cursor position, clear lines below, restore cursor
-        stream.write(ansiEscapes.cursorSavePosition);
-        for (let i = visibleCount; i < prevVisibleCount; i++) {
+        // Move down line by line, clearing each
+        const extraLines = prevVisibleCount - visibleCount;
+        for (let i = 0; i < extraLines; i++) {
           stream.write('\n' + ansiEscapes.eraseLine);
         }
-        stream.write(ansiEscapes.cursorRestorePosition);
+
+        // Move cursor back up to the end of the last active line
+        stream.write(ansiEscapes.cursorUp(extraLines));
+        stream.write(ansiEscapes.cursorTo(0));
+        if (visibleCount > 0) {
+          // Reposition cursor at end of last active line
+          stream.write(nextLines[visibleCount - 1]!);
+        }
       }
 
       previousOutput = output;
@@ -264,6 +272,8 @@ const createIncremental = (
   render.setTallMode = (enabled: boolean) => {
     wantsTallMode = enabled;
   };
+
+  render.wantsTallMode = () => wantsTallMode;
 
   return render;
 };
