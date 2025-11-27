@@ -2,17 +2,16 @@ import {type Writable} from 'node:stream';
 import ansiEscapes from 'ansi-escapes';
 import cliCursor from 'cli-cursor';
 
-// ... existing code ...
 export type LogUpdate = {
   clear: () => void;
   done: () => void;
   sync: (str: string) => void;
   forceRedraw: () => void;
+  setTallMode: (enabled: boolean) => void;
   (str: string): void;
 };
 
 const createStandard = (
-// ... existing code ...
 	stream: Writable,
 	{showCursor = false} = {},
 ): LogUpdate => {
@@ -52,7 +51,6 @@ const createStandard = (
 		}
 	};
 
-  // ... existing code ...
   render.sync = (str: string) => {
     const output = str + '\n';
     previousOutput = output;
@@ -64,11 +62,14 @@ const createStandard = (
     render.clear();
   };
 
+  render.setTallMode = (_enabled: boolean) => {
+    throw new Error("The standard renderer does not support tall mode, use the incremental renderer for tall mode support");
+  };
+
   return render;
 };
 
 const createIncremental = (
-// ... existing code ...
   stream: Writable,
   {showCursor = false} = {},
 ): LogUpdate => {
@@ -76,8 +77,7 @@ const createIncremental = (
   let previousOutput = '';
   let hasHiddenCursor = false;
   let isInTallMode = false;
-  // @ts-ignore
-  let committedLineCount = 0; // Lines that are "final" and scrolled up
+  let wantsTallMode: boolean | null = null; // null = automatic, true/false = manual override
 
   const getTerminalHeight = (): number => {
     return (stream as NodeJS.WriteStream).rows || 24;
@@ -98,36 +98,42 @@ const createIncremental = (
     const nextLines = output.split('\n');
     const nextCount = nextLines.length;
     const visibleCount = nextCount - 1;
-    const terminalHeight = getTerminalHeight();
 
-    // Transition back to normal mode when content fits within terminal height
-    if (isInTallMode && nextCount <= terminalHeight) {
+    // Transition back to normal mode
+    if (isInTallMode && !wantsTallMode) {
       isInTallMode = false;
-      committedLineCount = 0;
+      //const terminalHeight = getTerminalHeight();
       // Clear what we can and rewrite from scratch in normal mode
-      stream.write(ansiEscapes.eraseLines(Math.min(previousCount, terminalHeight)));
+      //stream.write(ansiEscapes.eraseLines(Math.min(previousCount, terminalHeight)));
+      stream.write(ansiEscapes.clearTerminal);
       stream.write(output);
       previousOutput = output;
       previousLines = nextLines;
       return;
     }
 
-    // Transition into tall mode when content exceeds terminal height
-    if (!isInTallMode && nextCount > terminalHeight) {
+    // ... existing code ...
+    // Transition into tall mode
+    if (!isInTallMode && wantsTallMode) {
       isInTallMode = true;
-      // Erase the previous output completely
-      stream.write(ansiEscapes.eraseLines(previousCount));
+      // Clear terminal and rewrite all content from scratch
+      stream.write(ansiEscapes.clearTerminal);
 
-      // Write all complete lines (except the last one which we'll keep "active")
-      for (let i = 0; i < visibleCount; i++) {
+      // Write all lines except the last "active" line with newlines
+      for (let i = 0; i < visibleCount - 1; i++) {
         stream.write(nextLines[i]! + '\n');
+      }
+
+      // Write the last active line without trailing newline (cursor stays at end for in-place updates)
+      if (visibleCount > 0) {
+        stream.write(nextLines[visibleCount - 1]!);
       }
 
       previousOutput = output;
       previousLines = nextLines;
-      committedLineCount = visibleCount;
       return;
     }
+// ... existing code ...
 
     // In tall mode: only append new lines, update last line in place
     if (isInTallMode) {
@@ -149,8 +155,6 @@ const createIncremental = (
 
         // 4. Write the new active last line (without newline)
         stream.write(nextLines[visibleCount - 1]!);
-
-        committedLineCount = visibleCount;
       } else {
         // Same number of lines - just update the last line in place
         stream.write(ansiEscapes.eraseLine + ansiEscapes.cursorLeft);
@@ -170,13 +174,15 @@ const createIncremental = (
       return;
     }
 
-    // We aggregate all chunks for incremental rendering into a buffer
+		// We aggregate all chunks for incremental rendering into a buffer, and then write them to stdout at the end.
     const buffer: string[] = [];
 
     // Clear extra lines if the current content's line count is lower than the previous.
     if (nextCount < previousCount) {
       buffer.push(
+				// Erases the trailing lines and the final newline slot.
         ansiEscapes.eraseLines(previousCount - nextCount + 1),
+				// Positions cursor to the top of the rendered output.
         ansiEscapes.cursorUp(visibleCount),
       );
     } else {
@@ -184,6 +190,7 @@ const createIncremental = (
     }
 
     for (let i = 0; i < visibleCount; i++) {
+			// We do not write lines if the contents are the same. This prevents flickering during renders.
       if (nextLines[i] === previousLines[i]) {
         buffer.push(ansiEscapes.cursorNextLine);
         continue;
@@ -207,36 +214,28 @@ const createIncremental = (
     previousOutput = '';
     previousLines = [];
     isInTallMode = false;
-    committedLineCount = 0;
   };
 
   render.done = () => {
     previousOutput = '';
     previousLines = [];
-    isInTallMode = false;
-    committedLineCount = 0;
 
     if (!showCursor) {
       cliCursor.show();
       hasHiddenCursor = false;
     }
   };
-// ... existing code ...
+
   render.sync = (str: string) => {
     const output = str + '\n';
     previousOutput = output;
     previousLines = output.split('\n');
-    const terminalHeight = getTerminalHeight();
-    isInTallMode = previousLines.length >= terminalHeight;
-    committedLineCount = previousLines.length - 1;
   };
 
   render.forceRedraw = () => {
     const output = previousOutput;
     // Clear terminal and reset state
     stream.write(ansiEscapes.clearTerminal);
-    isInTallMode = false;
-    committedLineCount = 0;
     previousOutput = '';
     previousLines = [];
     // Re-render the current output if we have one
@@ -245,9 +244,12 @@ const createIncremental = (
     }
   };
 
+  render.setTallMode = (enabled: boolean) => {
+    wantsTallMode = enabled;
+  };
+
   return render;
 };
-// ... existing code ...
 
 const create = (
 	stream: Writable,

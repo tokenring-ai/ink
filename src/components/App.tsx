@@ -22,6 +22,7 @@ type Props = {
 	readonly writeToStderr: (data: string) => void;
 	readonly exitOnCtrlC: boolean;
 	readonly onExit: (error?: Error) => void;
+  readonly setTallMode: (isTallMode: boolean) => void;
 };
 
 type State = {
@@ -69,6 +70,7 @@ export default class App extends PureComponent<Props, State> {
 			<AppContext.Provider
 				// eslint-disable-next-line react/jsx-no-constructed-context-values
 				value={{
+          setTallMode: this.props.setTallMode,
 					exit: this.handleExit,
 				}}
 			>

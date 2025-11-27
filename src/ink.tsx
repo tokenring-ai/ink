@@ -54,8 +54,6 @@ export default class Ink {
 	private isUnmounted: boolean;
 	private lastOutput: string;
 	private lastOutputHeight: number;
-	// @ts-ignore
-  private lastTerminalWidth: number;
 	private readonly container: FiberRoot;
 	private readonly rootNode: dom.DOMElement;
 	// This variable is used only in debug mode to store full static output
@@ -105,7 +103,6 @@ export default class Ink {
 		// Store last output to only rerender when needed
 		this.lastOutput = '';
 		this.lastOutputHeight = 0;
-		this.lastTerminalWidth = this.getTerminalWidth();
 
 		// This variable is used only in debug mode to store full static output
 		// so that it's rerendered every time, not just new static parts, like in non-debug mode
@@ -157,20 +154,16 @@ export default class Ink {
 		// In that case we fall back to 80.
 		return this.options.stdout.columns || 80;
 	};
-// ... existing code ...
-  resized = () => {
-    const currentWidth = this.getTerminalWidth();
 
+  resized = () => {
     // Force a full redraw on any resize to prevent corruption
     this.log.forceRedraw();
     this.lastOutput = '';
 
     this.calculateLayout();
     this.onRender();
-
-    this.lastTerminalWidth = currentWidth;
   };
-// ... existing code ...
+
 	resolveExitPromise: () => void = () => {};
 	rejectExitPromise: (reason?: Error) => void = () => {};
 	unsubscribeExit: () => void = () => {};
@@ -266,17 +259,6 @@ export default class Ink {
 			this.fullStaticOutput += staticOutput;
 		}
 
-    /*
-		if (this.lastOutputHeight >= this.options.stdout.rows) {
-			this.options.stdout.write(
-				ansiEscapes.clearTerminal + this.fullStaticOutput + output,
-			);
-			this.lastOutput = output;
-			this.lastOutputHeight = outputHeight;
-			this.log.sync(output);
-			return;
-		}*/
-
 		// To ensure static output is cleanly rendered before main output, clear main output first
 		if (hasStaticOutput) {
 			this.log.clear();
@@ -293,23 +275,24 @@ export default class Ink {
 	};
 
 	render(node: ReactNode): void {
-		const tree = (
-			<AccessibilityContext.Provider
-				value={{isScreenReaderEnabled: this.isScreenReaderEnabled}}
-			>
-				<App
-					stdin={this.options.stdin}
-					stdout={this.options.stdout}
-					stderr={this.options.stderr}
-					writeToStdout={this.writeToStdout}
-					writeToStderr={this.writeToStderr}
-					exitOnCtrlC={this.options.exitOnCtrlC}
-					onExit={this.unmount}
-				>
-					{node}
-				</App>
-			</AccessibilityContext.Provider>
-		);
+    const tree = (
+      <AccessibilityContext.Provider
+        value={{isScreenReaderEnabled: this.isScreenReaderEnabled}}
+      >
+        <App
+          stdin={this.options.stdin}
+          stdout={this.options.stdout}
+          stderr={this.options.stderr}
+          writeToStdout={this.writeToStdout}
+          writeToStderr={this.writeToStderr}
+          exitOnCtrlC={this.options.exitOnCtrlC}
+          onExit={this.unmount}
+          setTallMode={this.setTallMode}
+        >
+          {node}
+        </App>
+      </AccessibilityContext.Provider>
+    );
 
 		// @ts-expect-error the types for `react-reconciler` are not up to date with the library.
 		// eslint-disable-next-line @typescript-eslint/no-unsafe-call
@@ -412,13 +395,17 @@ export default class Ink {
 		return this.exitPromise;
 	}
 
-	clear(): void {
-		if (!isInCi && !this.options.debug) {
-			this.log.clear();
-		}
-	}
+  clear(): void {
+    if (!isInCi && !this.options.debug) {
+      this.log.clear();
+    }
+  }
 
-	patchConsole(): void {
+  setTallMode = (enabled: boolean): void => {
+    this.log.setTallMode(enabled);
+  };
+
+  patchConsole(): void {
 		if (this.options.debug) {
 			return;
 		}
