@@ -54,7 +54,8 @@ export default class Ink {
 	private isUnmounted: boolean;
 	private lastOutput: string;
 	private lastOutputHeight: number;
-	private lastTerminalWidth: number;
+	// @ts-ignore
+  private lastTerminalWidth: number;
 	private readonly container: FiberRoot;
 	private readonly rootNode: dom.DOMElement;
 	// This variable is used only in debug mode to store full static output
@@ -156,22 +157,20 @@ export default class Ink {
 		// In that case we fall back to 80.
 		return this.options.stdout.columns || 80;
 	};
+// ... existing code ...
+  resized = () => {
+    const currentWidth = this.getTerminalWidth();
 
-	resized = () => {
-		const currentWidth = this.getTerminalWidth();
+    // Force a full redraw on any resize to prevent corruption
+    this.log.forceRedraw();
+    this.lastOutput = '';
 
-		if (currentWidth < this.lastTerminalWidth) {
-			// We clear the screen when decreasing terminal width to prevent duplicate overlapping re-renders.
-			this.log.clear();
-			this.lastOutput = '';
-		}
+    this.calculateLayout();
+    this.onRender();
 
-		this.calculateLayout();
-		this.onRender();
-
-		this.lastTerminalWidth = currentWidth;
-	};
-
+    this.lastTerminalWidth = currentWidth;
+  };
+// ... existing code ...
 	resolveExitPromise: () => void = () => {};
 	rejectExitPromise: (reason?: Error) => void = () => {};
 	unsubscribeExit: () => void = () => {};
@@ -267,6 +266,7 @@ export default class Ink {
 			this.fullStaticOutput += staticOutput;
 		}
 
+    /*
 		if (this.lastOutputHeight >= this.options.stdout.rows) {
 			this.options.stdout.write(
 				ansiEscapes.clearTerminal + this.fullStaticOutput + output,
@@ -275,7 +275,7 @@ export default class Ink {
 			this.lastOutputHeight = outputHeight;
 			this.log.sync(output);
 			return;
-		}
+		}*/
 
 		// To ensure static output is cleanly rendered before main output, clear main output first
 		if (hasStaticOutput) {
