@@ -112,7 +112,6 @@ const createIncremental = (
       return;
     }
 
-    // ... existing code ...
     // Transition into tall mode
     if (!isInTallMode && wantsTallMode) {
       isInTallMode = true;
@@ -133,32 +132,50 @@ const createIncremental = (
       previousLines = nextLines;
       return;
     }
-// ... existing code ...
 
-    // In tall mode: only append new lines, update last line in place
+    // In tall mode: use diff algorithm to find divergence point and update from there
     if (isInTallMode) {
       const prevVisibleCount = previousLines.length - 1;
-      const newCommittedLines = visibleCount - prevVisibleCount;
 
-      if (newCommittedLines > 0) {
-        // New lines were added.
-        // 1. Erase the current active line (which is now complete)
-        stream.write(ansiEscapes.eraseLine + ansiEscapes.cursorLeft);
+      // Find the first line where content diverges (only compare committed lines, not the active last line)
+      let divergenceIndex = 0;
+      const minCommittedLength = Math.min(prevVisibleCount - 1, visibleCount - 1);
 
-        // 2. Rewrite that line properly with a newline
-        stream.write(nextLines[prevVisibleCount - 1]! + '\n');
+      while (divergenceIndex < minCommittedLength && nextLines[divergenceIndex] === previousLines[divergenceIndex]) {
+        divergenceIndex++;
+      }
 
-        // 3. Write any completely new lines in between
-        for (let i = prevVisibleCount; i < visibleCount - 1; i++) {
-          stream.write(nextLines[i]! + '\n');
+      // Calculate how many lines we need to go back from current cursor position
+      // Cursor is at the end of the last visible line (index prevVisibleCount - 1)
+      // We want to go to divergenceIndex
+      const linesToGoBack = prevVisibleCount - 1 - divergenceIndex;
+
+      if (linesToGoBack > 0) {
+        // Move cursor up to the divergence point
+        stream.write(ansiEscapes.cursorUp(linesToGoBack));
+      }
+
+      // Move to beginning of line
+      stream.write(ansiEscapes.cursorTo(0));
+
+      // Write all lines from divergence point to the second-to-last line (with newlines)
+      for (let i = divergenceIndex; i < visibleCount - 1; i++) {
+        stream.write(ansiEscapes.eraseLine + nextLines[i]! + '\n');
+      }
+
+      // Write the last active line without trailing newline
+      if (visibleCount > 0) {
+        stream.write(ansiEscapes.eraseLine + nextLines[visibleCount - 1]!);
+      }
+
+      // If we had more lines before, we need to clear the remaining old lines
+      if (prevVisibleCount > visibleCount) {
+        // Save cursor position, clear lines below, restore cursor
+        stream.write(ansiEscapes.cursorSavePosition);
+        for (let i = visibleCount; i < prevVisibleCount; i++) {
+          stream.write('\n' + ansiEscapes.eraseLine);
         }
-
-        // 4. Write the new active last line (without newline)
-        stream.write(nextLines[visibleCount - 1]!);
-      } else {
-        // Same number of lines - just update the last line in place
-        stream.write(ansiEscapes.eraseLine + ansiEscapes.cursorLeft);
-        stream.write(nextLines[visibleCount - 1]!);
+        stream.write(ansiEscapes.cursorRestorePosition);
       }
 
       previousOutput = output;
