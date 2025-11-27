@@ -235,7 +235,8 @@ const measureTextNode = function (
 	}
 
 	const textWrap = node.style?.textWrap ?? 'wrap';
-	const wrappedText = wrapText(text, width, textWrap);
+	// Ensure width is at least 1 to prevent wrap-ansi issues with wide characters
+  const wrappedText = wrapText(text, Math.max(1, Math.floor(width)), textWrap);
 
 	return measureText(wrappedText);
 };
