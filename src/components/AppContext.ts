@@ -5,7 +5,6 @@ export type Props = {
 	Exit (unmount) the whole Ink app.
 	*/
 	readonly exit: (error?: Error) => void;
-  readonly setTallMode: (tallMode: boolean) => void;
 };
 
 /**
@@ -13,7 +12,6 @@ export type Props = {
 */
 // eslint-disable-next-line @typescript-eslint/naming-convention
 const AppContext = createContext<Props>({
-  setTallMode(_tallMode: boolean) {},
 	exit() {},
 });
 

@@ -42,6 +42,7 @@ export type Options = {
 	waitUntilExit?: () => Promise<void>;
 	maxFps?: number;
 	incrementalRendering?: boolean;
+  tallMode?: boolean;
 };
 
 export default class Ink {
@@ -89,6 +90,7 @@ export default class Ink {
 		this.rootNode.onImmediateRender = this.onRender;
 		this.log = logUpdate.create(options.stdout, {
 			incremental: options.incrementalRendering,
+      tallMode: options.tallMode,
 		});
 		this.throttledLog = unthrottled
 			? this.log
@@ -259,15 +261,24 @@ export default class Ink {
 			this.fullStaticOutput += staticOutput;
 		}
 
-		if (this.lastOutputHeight >= this.options.stdout.rows && ! this.log.wantsTallMode()) {
-			this.options.stdout.write(
-				ansiEscapes.clearTerminal + this.fullStaticOutput + output,
-			);
-			this.lastOutput = output;
-			this.lastOutputHeight = outputHeight;
-			this.log.sync(output);
-			return;
-		}
+    // Auto-enable tall mode before content exceeds terminal height
+    // This prevents cursor positioning issues when content approaches the viewport size
+    //if (outputHeight >= this.options.stdout.rows - 2 && !this.log.wantsTallMode()) {
+    //  this.log.setTallMode(true);
+    //}
+
+
+    // Old content scrolled off screen and new content is shorter = orphaned lines we can't erase
+    const scrolledOffLines = Math.max(0, this.lastOutputHeight - this.options.stdout.rows);
+    if (scrolledOffLines > 0 && outputHeight < this.lastOutputHeight) {
+      this.options.stdout.write(
+        ansiEscapes.clearTerminal + this.fullStaticOutput + output,
+      );
+      this.lastOutput = output;
+      this.lastOutputHeight = outputHeight;
+      this.log.sync(output);
+      return;
+    }
 
 		// To ensure static output is cleanly rendered before main output, clear main output first
 		if (hasStaticOutput) {
@@ -297,7 +308,6 @@ export default class Ink {
           writeToStderr={this.writeToStderr}
           exitOnCtrlC={this.options.exitOnCtrlC}
           onExit={this.unmount}
-          setTallMode={this.setTallMode}
         >
           {node}
         </App>
@@ -410,10 +420,6 @@ export default class Ink {
       this.log.clear();
     }
   }
-
-  setTallMode = (enabled: boolean): void => {
-    this.log.setTallMode(enabled);
-  };
 
   patchConsole(): void {
 		if (this.options.debug) {

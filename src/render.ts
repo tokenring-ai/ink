@@ -74,6 +74,8 @@ export type RenderOptions = {
 	@default false
 	*/
 	incrementalRendering?: boolean;
+
+  tallMode?: boolean;
 };
 
 export type Instance = {
@@ -116,6 +118,7 @@ const render = (
 		patchConsole: true,
 		maxFps: 30,
 		incrementalRendering: false,
+    tallMode: false,
 		...getOptions(options),
 	};
 
